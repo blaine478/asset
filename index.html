@@ -14,7 +14,8 @@
         table { width: 100%; border-collapse: collapse; margin-top: 20px; }
         th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
         th { background-color: #f2f2f2; }
-        button { margin: 5px; }
+        button { margin: 5px; padding: 5px 10px; cursor: pointer; }
+        input, select { padding: 5px; }
     </style>
 </head>
 <body>
@@ -31,10 +32,11 @@
         <table id="inventoryTable">
             <thead>
                 <tr>
-                    <th>Item Name</th>
+                    <th>Asset Tag</th>
                     <th>Description</th>
-                    <th>Accounted For</th>
-                    <th>Location</th>
+                    <th>Brand</th>
+                    <th>Status</th>
+                    <th>Category</th>
                     <th>Actions</th>
                 </tr>
             </thead>
@@ -67,12 +69,13 @@
                 const data = doc.data();
                 const row = document.createElement('tr');
                 row.innerHTML = `
-                    <td>${data.itemName || ''}</td>
+                    <td>${data.assetTag || ''}</td>
                     <td>${data.description || ''}</td>
-                    <td id="accountedFor-${doc.id}">${data.accountedFor ? 'Yes' : 'No'}</td>
-                    <td id="location-${doc.id}">${data.location || ''}</td>
+                    <td>${data.brand || ''}</td>
+                    <td id="status-${doc.id}">${data.accountedFor ? 'Accounted For' : 'Missing'}</td>
+                    <td id="category-${doc.id}">${data.category || ''}</td>
                     <td>
-                        <button onclick="startEdit('${doc.id}', ${data.accountedFor}, '${data.location || ''}')">Edit</button>
+                        <button onclick="startEdit('${doc.id}', ${data.accountedFor}, '${data.category || ''}')">Edit</button>
                     </td>
                 `;
                 inventoryBody.appendChild(row);
@@ -85,44 +88,54 @@
         // Function to handle Excel upload and import
         async function handleUpload() {
             const file = document.getElementById('fileUpload').files[0];
-            if (!file) return;
+            if (!file) {
+                alert('Please select a file.');
+                return;
+            }
 
             const reader = new FileReader();
             reader.onload = async (e) => {
-                const data = new Uint8Array(e.target.result);
-                const workbook = XLSX.read(data, { type: 'array' });
-                const sheetName = workbook.SheetNames[0];
-                const worksheet = workbook.Sheets[sheetName];
-                const json = XLSX.utils.sheet_to_json(worksheet);
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const sheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[sheetName];
+                    const json = XLSX.utils.sheet_to_json(worksheet);
 
-                for (const row of json) {
-                    const item = {
-                        itemName: row.ItemName || '',
-                        description: row.Description || '',
-                        accountedFor: (row.AccountedFor || '').toLowerCase() === 'yes',
-                        location: row.Location || ''
-                    };
-                    await db.collection('inventory').add(item);
+                    for (const row of json) {
+                        const item = {
+                            assetTag: row['Asset Tag'] || '',
+                            description: row.Description || '',
+                            brand: row.Brand || '',
+                            accountedFor: (row.Status || '').toLowerCase() === 'accounted for',
+                            category: row.Category || ''
+                        };
+                        await db.collection('inventory').add(item);
+                    }
+                    fetchInventory(); // Refresh table
+                    alert('Inventory imported successfully!');
+                } catch (error) {
+                    console.error('Error importing file:', error);
+                    alert('Error importing file. Check console for details.');
                 }
-                fetchInventory(); // Refresh table
             };
             reader.readAsArrayBuffer(file);
         }
 
         // Function to start editing
-        function startEdit(id, accountedFor, location) {
-            const accountedForCell = document.getElementById(`accountedFor-${id}`);
-            const locationCell = document.getElementById(`location-${id}`);
-            const actionsCell = accountedForCell.nextSibling.nextSibling; // Assuming structure
+        function startEdit(id, accountedFor, category) {
+            const statusCell = document.getElementById(`status-${id}`);
+            const categoryCell = document.getElementById(`category-${id}`);
+            const actionsCell = statusCell.nextSibling.nextSibling; // Assuming structure
 
-            accountedForCell.innerHTML = `
-                <select id="editAccountedFor-${id}">
-                    <option value="yes" ${accountedFor ? 'selected' : ''}>Yes</option>
-                    <option value="no" ${!accountedFor ? 'selected' : ''}>No</option>
+            statusCell.innerHTML = `
+                <select id="editStatus-${id}">
+                    <option value="true" ${accountedFor ? 'selected' : ''}>Accounted For</option>
+                    <option value="false" ${!accountedFor ? 'selected' : ''}>Missing</option>
                 </select>
             `;
-            locationCell.innerHTML = `
-                <input id="editLocation-${id}" value="${location}" />
+            categoryCell.innerHTML = `
+                <input id="editCategory-${id}" value="${category.replace(/"/g, '&quot;')}" />
             `;
             actionsCell.innerHTML = `
                 <button onclick="saveEdit('${id}')">Save</button>
@@ -131,14 +144,19 @@
 
         // Function to save edits
         async function saveEdit(id) {
-            const editAccountedFor = document.getElementById(`editAccountedFor-${id}`).value === 'yes';
-            const editLocation = document.getElementById(`editLocation-${id}`).value;
+            try {
+                const editAccountedFor = document.getElementById(`editStatus-${id}`).value === 'true';
+                const editCategory = document.getElementById(`editCategory-${id}`).value;
 
-            await db.collection('inventory').doc(id).update({
-                accountedFor: editAccountedFor,
-                location: editLocation
-            });
-            fetchInventory(); // Refresh table
+                await db.collection('inventory').doc(id).update({
+                    accountedFor: editAccountedFor,
+                    category: editCategory
+                });
+                fetchInventory(); // Refresh table
+            } catch (error) {
+                console.error('Error saving changes:', error);
+                alert('Error saving changes. Check console for details.');
+            }
         }
     </script>
 </body>
