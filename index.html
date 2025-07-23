@@ -23,6 +23,33 @@
         h1, h2 {
             color: #2c3e50;
         }
+        .tabs {
+            overflow: hidden;
+            border-bottom: 1px solid #ccc;
+            background-color: #f1f1f1;
+            margin-bottom: 20px;
+        }
+        .tablink {
+            background-color: inherit;
+            float: left;
+            border: none;
+            outline: none;
+            cursor: pointer;
+            padding: 14px 16px;
+            transition: 0.3s;
+            font-size: 17px;
+        }
+        .tablink:hover {
+            background-color: #ddd;
+        }
+        .tablink.active {
+            background-color: #ccc;
+        }
+        .tabcontent {
+            display: none;
+            padding: 6px 12px;
+            border-top: none;
+        }
         section {
             background: white;
             padding: 20px;
@@ -106,45 +133,72 @@
 <body>
     <h1>Tool Inventory Manager</h1>
     
-    <section>
-        <h2>Upload Excel Sheet</h2>
-        <input type="file" id="fileUpload" accept=".xlsx, .xls" />
-        <button onclick="handleUpload()">Upload and Import</button>
-    </section>
+    <div class="tabs">
+        <button class="tablink" onclick="openTab(event, 'inventory')" id="defaultOpen">Inventory</button>
+        <button class="tablink" onclick="openTab(event, 'settings')">Settings</button>
+    </div>
+
+    <div id="settings" class="tabcontent">
+        <section>
+            <h2>Upload Excel Sheet</h2>
+            <input type="file" id="fileUpload" accept=".xlsx, .xls" />
+            <button onclick="handleUpload()">Upload and Import</button>
+        </section>
+        
+        <section>
+            <h2>Manage Locations</h2>
+            <input type="text" id="newLocationInput" placeholder="Enter new location" />
+            <button onclick="addLocation()">Add Location</button>
+            <div id="locationsList"></div>
+        </section>
+    </div>
     
-    <section>
-        <h2>Settings - Manage Locations</h2>
-        <input type="text" id="newLocationInput" placeholder="Enter new location" />
-        <button onclick="addLocation()">Add Location</button>
-        <div id="locationsList"></div>
-    </section>
-    
-    <section>
-        <h2>Inventory List</h2>
-        <input type="text" id="searchInput" onkeyup="filterTable()" placeholder="Search inventory..." />
-        <select id="accountedFilter" onchange="filterTable()">
-            <option value="all">All</option>
-            <option value="yes">Accounted For</option>
-            <option value="no">Not Accounted For</option>
-        </select>
-        <button id="exportPdf" onclick="exportToPdf()">Export to PDF</button>
-        <button id="exportExcel" onclick="exportToExcel()">Export to Excel</button>
-        <table id="inventoryTable">
-            <thead>
-                <tr>
-                    <th>Asset Tag ID</th>
-                    <th>Description</th>
-                    <th>Brand</th>
-                    <th>Category</th>
-                    <th>Accounted For</th>
-                    <th>Location</th>
-                </tr>
-            </thead>
-            <tbody id="inventoryBody"></tbody>
-        </table>
-    </section>
+    <div id="inventory" class="tabcontent">
+        <section>
+            <h2>Inventory List</h2>
+            <input type="text" id="searchInput" onkeyup="filterTable()" placeholder="Search inventory..." />
+            <select id="accountedFilter" onchange="filterTable()">
+                <option value="all">All</option>
+                <option value="yes">Accounted For</option>
+                <option value="no">Not Accounted For</option>
+            </select>
+            <button id="exportPdf" onclick="exportToPdf()">Export to PDF</button>
+            <button id="exportExcel" onclick="exportToExcel()">Export to Excel</button>
+            <table id="inventoryTable">
+                <thead>
+                    <tr>
+                        <th>Asset Tag ID</th>
+                        <th>Description</th>
+                        <th>Brand</th>
+                        <th>Category</th>
+                        <th>Accounted For</th>
+                        <th>Location</th>
+                    </tr>
+                </thead>
+                <tbody id="inventoryBody"></tbody>
+            </table>
+        </section>
+    </div>
 
     <script>
+        // Tab switching function
+        function openTab(evt, tabName) {
+            var i, tabcontent, tablinks;
+            tabcontent = document.getElementsByClassName("tabcontent");
+            for (i = 0; i < tabcontent.length; i++) {
+                tabcontent[i].style.display = "none";
+            }
+            tablinks = document.getElementsByClassName("tablink");
+            for (i = 0; i < tablinks.length; i++) {
+                tablinks[i].className = tablinks[i].className.replace(" active", "");
+            }
+            document.getElementById(tabName).style.display = "block";
+            evt.currentTarget.className += " active";
+        }
+
+        // Open the default tab (Inventory)
+        document.getElementById("defaultOpen").click();
+
         // Firebase configuration
         const firebaseConfig = {
             apiKey: "AIzaSyCKojz4RoEzHLGKMBhKwUBHHqH_O8m4RCM",
@@ -455,8 +509,8 @@
                     item.assetTag || '',
                     item.description || '',
                     item.brand || '',
-                    item.category || '',
                     item.accountedFor ? 'Yes' : 'No',
+                    item.category || '',
                     item.location || ''
                 ]),
                 startY: 30,
