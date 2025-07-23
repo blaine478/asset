@@ -132,7 +132,7 @@
         <table id="inventoryTable">
             <thead>
                 <tr>
-                    <th>Asset Tag</th>
+                    <th>Asset Tag ID</th>
                     <th>Description</th>
                     <th>Brand</th>
                     <th>Category</th>
@@ -172,6 +172,7 @@
                 const data = doc.data();
                 data.id = doc.id; // Add ID to data for reference
                 inventoryData.push(data);
+                const isCustomLocation = data.location && locations.every(loc => loc.name !== data.location);
                 const row = document.createElement('tr');
                 row.innerHTML = `
                     <td>${data.assetTag || ''}</td>
@@ -182,10 +183,12 @@
                         <input type="checkbox" id="accountedFor-${doc.id}" ${data.accountedFor ? 'checked' : ''} onchange="handleCheckboxChange('${doc.id}', this)" />
                     </td>
                     <td>
-                        <select id="location-${doc.id}" style="display: ${data.accountedFor ? 'block' : 'none'};" onchange="handleLocationChange('${doc.id}', this.value)">
+                        <select id="location-select-${doc.id}" style="display: ${data.accountedFor ? 'block' : 'none'};" onchange="handleLocationSelectChange('${doc.id}', this.value)">
                             <option value="">Select Location</option>
                             ${locations.map(loc => `<option value="${loc.name}" ${data.location === loc.name ? 'selected' : ''}>${loc.name}</option>`).join('')}
+                            <option value="Other" ${isCustomLocation ? 'selected' : ''}>Other</option>
                         </select>
+                        <input type="text" id="location-custom-${doc.id}" value="${isCustomLocation ? data.location.replace(/"/g, '"') : ''}" style="display: ${data.accountedFor && isCustomLocation ? 'block' : 'none'};" placeholder="Enter custom location" onblur="handleCustomLocationBlur('${doc.id}', this.value)" />
                     </td>
                 `;
                 inventoryBody.appendChild(row);
@@ -263,17 +266,41 @@
                     return;
                 }
             }
-            const locationSelect = document.getElementById(`location-${id}`);
+            const locationSelect = document.getElementById(`location-select-${id}`);
+            const locationCustom = document.getElementById(`location-custom-${id}`);
             locationSelect.style.display = checked ? 'block' : 'none';
+            locationCustom.style.display = (checked && locationSelect.value === 'Other') ? 'block' : 'none';
             if (!checked) {
                 locationSelect.value = '';
+                locationCustom.value = '';
                 saveItem(id, false, '');
             } else {
                 // No immediate save; wait for location selection
             }
         }
 
-        // Function to handle location dropdown change
+        // Function to handle location select change
+        function handleLocationSelectChange(id, value) {
+            const customInput = document.getElementById(`location-custom-${id}`);
+            customInput.style.display = (value === 'Other') ? 'block' : 'none';
+            if (value !== 'Other' && value !== '') {
+                handleLocationChange(id, value); // Save if not Other
+            } else if (value !== 'Other') {
+                customInput.value = '';
+            }
+            // If Other, wait for custom input blur
+        }
+
+        // Function to handle custom location blur
+        async function handleCustomLocationBlur(id, value) {
+            if (value.trim() === '') {
+                alert('Please enter a custom location or select from the list.');
+                return;
+            }
+            await handleLocationChange(id, value); // Save custom value
+        }
+
+        // Function to handle location change (for both select and custom)
         async function handleLocationChange(id, value) {
             const checkbox = document.getElementById(`accountedFor-${id}`);
             if (value === '') {
@@ -328,7 +355,7 @@
                     let headers = json[0].map(h => (h || '').toString().trim().toLowerCase());
                     const rows = json.slice(1);
 
-                    const assetTagIndex = headers.indexOf('asset tag');
+                    const assetTagIndex = headers.indexOf('asset tag id');
                     const descriptionIndex = headers.indexOf('description');
                     const brandIndex = headers.indexOf('brand');
                     const categoryIndex = headers.indexOf('category');
@@ -367,7 +394,7 @@
                         }
                     }
                     fetchInventory(); // Refresh table
-                    alert('Inventory imported successfully! Duplicates based on Asset Tag were updated without overwriting accountedFor or location. Check console for parsed data if issues persist.');
+                    alert('Inventory imported successfully! Duplicates based on Asset Tag ID were updated without overwriting accountedFor or location. Check console for parsed data if issues persist.');
                 } catch (error) {
                     console.error('Error importing file:', error);
                     alert('Error importing file. Check console for details.');
@@ -423,7 +450,7 @@
 
             // Add table
             doc.autoTable({
-                head: [['Asset Tag', 'Description', 'Brand', 'Category', 'Accounted For', 'Location']],
+                head: [['Asset Tag ID', 'Description', 'Brand', 'Category', 'Accounted For', 'Location']],
                 body: inventoryData.map(item => [
                     item.assetTag || '',
                     item.description || '',
