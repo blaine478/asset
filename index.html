@@ -9,6 +9,8 @@
     <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
     <!-- SheetJS for Excel parsing -->
     <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+    <!-- jsPDF for PDF export -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <style>
         body { font-family: Arial, sans-serif; padding: 20px; }
         table { width: 100%; border-collapse: collapse; margin-top: 20px; }
@@ -16,7 +18,8 @@
         th { background-color: #f2f2f2; }
         button { margin: 5px; padding: 5px 10px; cursor: pointer; }
         input, select { padding: 5px; }
-        .location-input { display: none; }
+        #searchInput { width: 100%; max-width: 400px; margin-bottom: 10px; }
+        #exportPdf { float: right; }
     </style>
 </head>
 <body>
@@ -30,6 +33,8 @@
     
     <section>
         <h2>Inventory List</h2>
+        <input type="text" id="searchInput" onkeyup="searchTable()" placeholder="Search inventory..." />
+        <button id="exportPdf" onclick="exportToPdf()">Export to PDF</button>
         <table id="inventoryTable">
             <thead>
                 <tr>
@@ -39,7 +44,6 @@
                     <th>Category</th>
                     <th>Accounted For</th>
                     <th>Location</th>
-                    <th>Actions</th>
                 </tr>
             </thead>
             <tbody id="inventoryBody"></tbody>
@@ -61,23 +65,29 @@
         firebase.initializeApp(firebaseConfig);
         const db = firebase.firestore();
 
+        let inventoryData = []; // Store fetched data for PDF export and search
+
         // Function to fetch and display inventory
         async function fetchInventory() {
+            inventoryData = []; // Clear previous data
             const inventoryBody = document.getElementById('inventoryBody');
             inventoryBody.innerHTML = ''; // Clear table
             const querySnapshot = await db.collection('inventory').get();
             querySnapshot.forEach((doc) => {
                 const data = doc.data();
+                data.id = doc.id; // Add ID to data for reference
+                inventoryData.push(data);
                 const row = document.createElement('tr');
                 row.innerHTML = `
                     <td>${data.assetTag || ''}</td>
                     <td>${data.description || ''}</td>
                     <td>${data.brand || ''}</td>
-                    <td id="category-${doc.id}">${data.category || ''}</td>
-                    <td id="accountedFor-${doc.id}">${data.accountedFor ? 'Yes' : 'No'}</td>
-                    <td id="location-${doc.id}">${data.location || ''}</td>
+                    <td>${data.category || ''}</td>
                     <td>
-                        <button onclick="startEdit('${doc.id}', ${data.accountedFor}, '${data.category || ''}', '${data.location || ''}')">Edit</button>
+                        <input type="checkbox" id="accountedFor-${doc.id}" ${data.accountedFor ? 'checked' : ''} onchange="handleCheckboxChange('${doc.id}', this.checked)" />
+                    </td>
+                    <td>
+                        <input type="text" id="location-${doc.id}" value="${data.location.replace(/"/g, '&quot;') || ''}" style="display: ${data.accountedFor ? 'block' : 'none'};" onblur="handleLocationBlur('${doc.id}', this.value)" />
                     </td>
                 `;
                 inventoryBody.appendChild(row);
@@ -86,6 +96,50 @@
 
         // Initial fetch
         fetchInventory();
+
+        // Function to handle checkbox change
+        function handleCheckboxChange(id, checked) {
+            const locationInput = document.getElementById(`location-${id}`);
+            locationInput.style.display = checked ? 'block' : 'none';
+            if (!checked) {
+                locationInput.value = '';
+                saveItem(id, false, '');
+            } else {
+                locationInput.focus();
+                // Save will happen on location blur if valid
+            }
+        }
+
+        // Function to handle location input blur
+        async function handleLocationBlur(id, value) {
+            const checkbox = document.getElementById(`accountedFor-${id}`);
+            if (value.trim() === '') {
+                if (checkbox.checked) {
+                    alert('Location cannot be empty if accounted for.');
+                    checkbox.checked = false;
+                    handleCheckboxChange(id, false);
+                }
+            } else {
+                if (!checkbox.checked) {
+                    checkbox.checked = true;
+                }
+                await saveItem(id, true, value);
+            }
+        }
+
+        // Function to save item
+        async function saveItem(id, accountedFor, location) {
+            try {
+                await db.collection('inventory').doc(id).update({
+                    accountedFor: accountedFor,
+                    location: location
+                });
+                fetchInventory(); // Refresh table to reflect changes
+            } catch (error) {
+                console.error('Error saving changes:', error);
+                alert('Error saving changes. Check console for details.');
+            }
+        }
 
         // Function to handle Excel upload and import
         async function handleUpload() {
@@ -125,65 +179,58 @@
             reader.readAsArrayBuffer(file);
         }
 
-        // Function to start editing
-        function startEdit(id, accountedFor, category, location) {
-            const categoryCell = document.getElementById(`category-${id}`);
-            const accountedForCell = document.getElementById(`accountedFor-${id}`);
-            const locationCell = document.getElementById(`location-${id}`);
-            const actionsCell = accountedForCell.nextSibling.nextSibling; // Assuming structure
+        // Function to search the table
+        function searchTable() {
+            const input = document.getElementById('searchInput').value.toLowerCase();
+            const table = document.getElementById('inventoryTable');
+            const tr = table.getElementsByTagName('tr');
 
-            // Edit Category
-            categoryCell.innerHTML = `
-                <input id="editCategory-${id}" value="${category.replace(/"/g, '&quot;')}" />
-            `;
-
-            // Edit Accounted For as checkbox
-            accountedForCell.innerHTML = `
-                <input type="checkbox" id="editAccountedFor-${id}" ${accountedFor ? 'checked' : ''} onchange="toggleLocationInput('${id}', this.checked)" />
-            `;
-
-            // Edit Location (initially show based on checkbox)
-            locationCell.innerHTML = `
-                <input id="editLocation-${id}" class="location-input" value="${location.replace(/"/g, '&quot;')}" style="display: ${accountedFor ? 'block' : 'none'};" />
-            `;
-
-            actionsCell.innerHTML = `
-                <button onclick="saveEdit('${id}')">Save</button>
-            `;
-        }
-
-        // Function to toggle location input visibility
-        function toggleLocationInput(id, isChecked) {
-            const locationInput = document.getElementById(`editLocation-${id}`);
-            locationInput.style.display = isChecked ? 'block' : 'none';
-            if (!isChecked) {
-                locationInput.value = ''; // Clear if unchecked
-            }
-        }
-
-        // Function to save edits
-        async function saveEdit(id) {
-            try {
-                const editAccountedFor = document.getElementById(`editAccountedFor-${id}`).checked;
-                const editCategory = document.getElementById(`editCategory-${id}`).value;
-                const editLocation = document.getElementById(`editLocation-${id}`).value;
-
-                // Validation: If checkbox is checked, require location
-                if (editAccountedFor && !editLocation.trim()) {
-                    alert('Please enter a location if the item is accounted for.');
-                    return;
+            for (let i = 1; i < tr.length; i++) {
+                let rowText = '';
+                const td = tr[i].getElementsByTagName('td');
+                for (let j = 0; j < td.length; j++) {
+                    let cellText = '';
+                    const cellInput = td[j].querySelector('input');
+                    if (cellInput) {
+                        if (cellInput.type === 'checkbox') {
+                            cellText = cellInput.checked ? 'yes' : 'no';
+                        } else {
+                            cellText = cellInput.value;
+                        }
+                    } else {
+                        cellText = td[j].textContent || td[j].innerText;
+                    }
+                    rowText += cellText.toLowerCase() + ' ';
                 }
-
-                await db.collection('inventory').doc(id).update({
-                    accountedFor: editAccountedFor,
-                    category: editCategory,
-                    location: editAccountedFor ? editLocation : '' // Clear location if not accounted for
-                });
-                fetchInventory(); // Refresh table
-            } catch (error) {
-                console.error('Error saving changes:', error);
-                alert('Error saving changes. Check console for details.');
+                tr[i].style.display = rowText.indexOf(input) > -1 ? '' : 'none';
             }
+        }
+
+        // Function to export to PDF
+        function exportToPdf() {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+
+            doc.setFontSize(16);
+            doc.text('Tool Inventory Report', 10, 10);
+
+            let y = 20;
+            doc.setFontSize(12);
+            doc.text('Asset Tag | Description | Brand | Category | Accounted For | Location', 10, y);
+            y += 10;
+
+            inventoryData.forEach(item => {
+                const accountedForText = item.accountedFor ? 'Yes' : 'No';
+                const line = `${item.assetTag || ''} | ${item.description || ''} | ${item.brand || ''} | ${item.category || ''} | ${accountedForText} | ${item.location || ''}`;
+                doc.text(line, 10, y);
+                y += 10;
+                if (y > 280) { // Add new page if needed
+                    doc.addPage();
+                    y = 10;
+                }
+            });
+
+            doc.save('inventory_report.pdf');
         }
     </script>
 </body>
