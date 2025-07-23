@@ -66,7 +66,7 @@
         button:hover {
             background-color: #2980b9;
         }
-        input[type="file"], input[type="text"] {
+        input[type="file"], input[type="text"], select {
             padding: 10px;
             border: 1px solid #ddd;
             border-radius: 5px;
@@ -74,7 +74,11 @@
         }
         #searchInput {
             width: 100%;
-            max-width: 400px;
+            max-width: 300px;
+            margin-bottom: 10px;
+        }
+        #accountedFilter {
+            width: 200px;
             margin-bottom: 10px;
         }
         #exportPdf {
@@ -97,7 +101,12 @@
     
     <section>
         <h2>Inventory List</h2>
-        <input type="text" id="searchInput" onkeyup="searchTable()" placeholder="Search inventory..." />
+        <input type="text" id="searchInput" onkeyup="filterTable()" placeholder="Search inventory..." />
+        <select id="accountedFilter" onchange="filterTable()">
+            <option value="all">All</option>
+            <option value="yes">Accounted For</option>
+            <option value="no">Not Accounted For</option>
+        </select>
         <button id="exportPdf" onclick="exportToPdf()">Export to PDF</button>
         <table id="inventoryTable">
             <thead>
@@ -148,7 +157,7 @@
                     <td>${data.brand || ''}</td>
                     <td>${data.category || ''}</td>
                     <td>
-                        <input type="checkbox" id="accountedFor-${doc.id}" ${data.accountedFor ? 'checked' : ''} onchange="handleCheckboxChange('${doc.id}', this.checked)" />
+                        <input type="checkbox" id="accountedFor-${doc.id}" ${data.accountedFor ? 'checked' : ''} onchange="handleCheckboxChange('${doc.id}', this)" />
                     </td>
                     <td>
                         <input type="text" id="location-${doc.id}" value="${data.location.replace(/"/g, '"') || ''}" style="display: ${data.accountedFor ? 'block' : 'none'};" onblur="handleLocationBlur('${doc.id}', this.value)" />
@@ -162,7 +171,14 @@
         fetchInventory();
 
         // Function to handle checkbox change
-        function handleCheckboxChange(id, checked) {
+        function handleCheckboxChange(id, checkbox) {
+            const checked = checkbox.checked;
+            if (!checked) {
+                if (!confirm('Are you sure you want to uncheck Accounted For? This will clear the location.')) {
+                    checkbox.checked = true; // Revert if canceled
+                    return;
+                }
+            }
             const locationInput = document.getElementById(`location-${id}`);
             locationInput.style.display = checked ? 'block' : 'none';
             if (!checked) {
@@ -181,7 +197,7 @@
                 if (checkbox.checked) {
                     alert('Location cannot be empty if accounted for.');
                     checkbox.checked = false;
-                    handleCheckboxChange(id, false);
+                    handleCheckboxChange(id, checkbox);
                 }
             } else {
                 if (!checkbox.checked) {
@@ -260,14 +276,16 @@
             reader.readAsArrayBuffer(file);
         }
 
-        // Function to search the table
-        function searchTable() {
-            const input = document.getElementById('searchInput').value.toLowerCase();
+        // Function to filter the table (search + accounted for filter)
+        function filterTable() {
+            const searchInput = document.getElementById('searchInput').value.toLowerCase();
+            const filterValue = document.getElementById('accountedFilter').value;
             const table = document.getElementById('inventoryTable');
             const tr = table.getElementsByTagName('tr');
 
             for (let i = 1; i < tr.length; i++) {
                 let rowText = '';
+                let accountedForText = '';
                 const td = tr[i].getElementsByTagName('td');
                 for (let j = 0; j < td.length; j++) {
                     let cellText = '';
@@ -275,6 +293,7 @@
                     if (cellInput) {
                         if (cellInput.type === 'checkbox') {
                             cellText = cellInput.checked ? 'yes' : 'no';
+                            accountedForText = cellText;
                         } else {
                             cellText = cellInput.value;
                         }
@@ -283,7 +302,12 @@
                     }
                     rowText += cellText.toLowerCase() + ' ';
                 }
-                tr[i].style.display = rowText.indexOf(input) > -1 ? '' : 'none';
+
+                let showRow = rowText.indexOf(searchInput) > -1;
+                if (filterValue !== 'all') {
+                    showRow = showRow && (accountedForText === filterValue);
+                }
+                tr[i].style.display = showRow ? '' : 'none';
             }
         }
 
