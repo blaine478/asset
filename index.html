@@ -136,7 +136,7 @@
             inventoryData = []; // Clear previous data
             const inventoryBody = document.getElementById('inventoryBody');
             inventoryBody.innerHTML = ''; // Clear table
-            const querySnapshot = await db.collection('inventory').get();
+            const querySnapshot = await db.collection('inventory').orderBy('createdAt').get();
             querySnapshot.forEach((doc) => {
                 const data = doc.data();
                 data.id = doc.id; // Add ID to data for reference
@@ -220,23 +220,32 @@
                     const workbook = XLSX.read(data, { type: 'array' });
                     const sheetName = workbook.SheetNames[0];
                     const worksheet = workbook.Sheets[sheetName];
-                    const json = XLSX.utils.sheet_to_json(worksheet, { header: 1 }); // Use raw rows to debug
+                    const json = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false }); // Ignore blank rows
 
                     // Log the parsed data for debugging
                     console.log('Parsed Excel Data:', json);
 
                     // Assuming first row is headers
-                    const headers = json[0];
+                    let headers = json[0].map(h => (h || '').toString().trim().toLowerCase());
                     const rows = json.slice(1);
 
+                    const assetTagIndex = headers.indexOf('asset tag');
+                    const descriptionIndex = headers.indexOf('description');
+                    const brandIndex = headers.indexOf('brand');
+                    const categoryIndex = headers.indexOf('category');
+
                     for (const row of rows) {
+                        // Skip empty rows
+                        if (row.every(cell => !cell || cell.toString().trim() === '')) continue;
+
                         const item = {
-                            assetTag: row[headers.indexOf('Asset Tag')] || '',
-                            description: row[headers.indexOf('Description')] || '',
-                            brand: row[headers.indexOf('Brand')] || '',
-                            category: row[headers.indexOf('Category')] || '',
+                            assetTag: (row[assetTagIndex] || '').toString().trim(),
+                            description: (row[descriptionIndex] || '').toString().trim(),
+                            brand: (row[brandIndex] || '').toString().trim(),
+                            category: (row[categoryIndex] || '').toString().trim(),
                             accountedFor: false, // Default to false since not in Excel
-                            location: '' // Default to empty
+                            location: '', // Default to empty
+                            createdAt: firebase.firestore.FieldValue.serverTimestamp() // For ordering
                         };
                         console.log('Item to add:', item); // Log each item
                         await db.collection('inventory').add(item);
