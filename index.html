@@ -16,6 +16,7 @@
         th { background-color: #f2f2f2; }
         button { margin: 5px; padding: 5px 10px; cursor: pointer; }
         input, select { padding: 5px; }
+        .location-input { display: none; }
     </style>
 </head>
 <body>
@@ -35,8 +36,9 @@
                     <th>Asset Tag</th>
                     <th>Description</th>
                     <th>Brand</th>
-                    <th>Status</th>
                     <th>Category</th>
+                    <th>Accounted For</th>
+                    <th>Location</th>
                     <th>Actions</th>
                 </tr>
             </thead>
@@ -71,10 +73,11 @@
                     <td>${data.assetTag || ''}</td>
                     <td>${data.description || ''}</td>
                     <td>${data.brand || ''}</td>
-                    <td id="status-${doc.id}">${data.accountedFor ? 'Accounted For' : 'Missing'}</td>
                     <td id="category-${doc.id}">${data.category || ''}</td>
+                    <td id="accountedFor-${doc.id}">${data.accountedFor ? 'Yes' : 'No'}</td>
+                    <td id="location-${doc.id}">${data.location || ''}</td>
                     <td>
-                        <button onclick="startEdit('${doc.id}', ${data.accountedFor}, '${data.category || ''}')">Edit</button>
+                        <button onclick="startEdit('${doc.id}', ${data.accountedFor}, '${data.category || ''}', '${data.location || ''}')">Edit</button>
                     </td>
                 `;
                 inventoryBody.appendChild(row);
@@ -106,8 +109,9 @@
                             assetTag: row['Asset Tag'] || '',
                             description: row.Description || '',
                             brand: row.Brand || '',
-                            accountedFor: (row.Status || '').toLowerCase() === 'accounted for',
-                            category: row.Category || ''
+                            category: row.Category || '',
+                            accountedFor: false, // Default to false since not in Excel
+                            location: '' // Default to empty
                         };
                         await db.collection('inventory').add(item);
                     }
@@ -122,34 +126,58 @@
         }
 
         // Function to start editing
-        function startEdit(id, accountedFor, category) {
-            const statusCell = document.getElementById(`status-${id}`);
+        function startEdit(id, accountedFor, category, location) {
             const categoryCell = document.getElementById(`category-${id}`);
-            const actionsCell = statusCell.nextSibling.nextSibling; // Assuming structure
+            const accountedForCell = document.getElementById(`accountedFor-${id}`);
+            const locationCell = document.getElementById(`location-${id}`);
+            const actionsCell = accountedForCell.nextSibling.nextSibling; // Assuming structure
 
-            statusCell.innerHTML = `
-                <select id="editStatus-${id}">
-                    <option value="true" ${accountedFor ? 'selected' : ''}>Accounted For</option>
-                    <option value="false" ${!accountedFor ? 'selected' : ''}>Missing</option>
-                </select>
-            `;
+            // Edit Category
             categoryCell.innerHTML = `
                 <input id="editCategory-${id}" value="${category.replace(/"/g, '&quot;')}" />
             `;
+
+            // Edit Accounted For as checkbox
+            accountedForCell.innerHTML = `
+                <input type="checkbox" id="editAccountedFor-${id}" ${accountedFor ? 'checked' : ''} onchange="toggleLocationInput('${id}', this.checked)" />
+            `;
+
+            // Edit Location (initially show based on checkbox)
+            locationCell.innerHTML = `
+                <input id="editLocation-${id}" class="location-input" value="${location.replace(/"/g, '&quot;')}" style="display: ${accountedFor ? 'block' : 'none'};" />
+            `;
+
             actionsCell.innerHTML = `
                 <button onclick="saveEdit('${id}')">Save</button>
             `;
         }
 
+        // Function to toggle location input visibility
+        function toggleLocationInput(id, isChecked) {
+            const locationInput = document.getElementById(`editLocation-${id}`);
+            locationInput.style.display = isChecked ? 'block' : 'none';
+            if (!isChecked) {
+                locationInput.value = ''; // Clear if unchecked
+            }
+        }
+
         // Function to save edits
         async function saveEdit(id) {
             try {
-                const editAccountedFor = document.getElementById(`editStatus-${id}`).value === 'true';
+                const editAccountedFor = document.getElementById(`editAccountedFor-${id}`).checked;
                 const editCategory = document.getElementById(`editCategory-${id}`).value;
+                const editLocation = document.getElementById(`editLocation-${id}`).value;
+
+                // Validation: If checkbox is checked, require location
+                if (editAccountedFor && !editLocation.trim()) {
+                    alert('Please enter a location if the item is accounted for.');
+                    return;
+                }
 
                 await db.collection('inventory').doc(id).update({
                     accountedFor: editAccountedFor,
-                    category: editCategory
+                    category: editCategory,
+                    location: editAccountedFor ? editLocation : '' // Clear location if not accounted for
                 });
                 fetchInventory(); // Refresh table
             } catch (error) {
