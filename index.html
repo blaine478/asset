@@ -7,7 +7,7 @@
     <!-- Firebase SDKs (Compat versions for global access) -->
     <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
-    <!-- SheetJS for Excel parsing -->
+    <!-- SheetJS for Excel parsing and export -->
     <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
     <!-- jsPDF for PDF export -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -62,6 +62,7 @@
             border-radius: 5px;
             cursor: pointer;
             transition: background-color 0.3s;
+            margin-left: 10px;
         }
         button:hover {
             background-color: #2980b9;
@@ -81,11 +82,11 @@
             width: 200px;
             margin-bottom: 10px;
         }
-        #exportPdf {
+        #exportPdf, #exportExcel {
             float: right;
             background-color: #27ae60;
         }
-        #exportPdf:hover {
+        #exportPdf:hover, #exportExcel:hover {
             background-color: #219d52;
         }
     </style>
@@ -108,6 +109,7 @@
             <option value="no">Not Accounted For</option>
         </select>
         <button id="exportPdf" onclick="exportToPdf()">Export to PDF</button>
+        <button id="exportExcel" onclick="exportToExcel()">Export to Excel</button>
         <table id="inventoryTable">
             <thead>
                 <tr>
@@ -254,20 +256,37 @@
                         // Skip empty rows
                         if (row.every(cell => !cell || cell.toString().trim() === '')) continue;
 
+                        const assetTag = (row[assetTagIndex] || '').toString().trim();
+                        if (!assetTag) continue; // Skip if no asset tag
+
                         const item = {
-                            assetTag: (row[assetTagIndex] || '').toString().trim(),
+                            assetTag: assetTag,
                             description: (row[descriptionIndex] || '').toString().trim(),
                             brand: (row[brandIndex] || '').toString().trim(),
                             category: (row[categoryIndex] || '').toString().trim(),
-                            accountedFor: false, // Default to false since not in Excel
-                            location: '', // Default to empty
                             createdAt: firebase.firestore.FieldValue.serverTimestamp() // For ordering
                         };
-                        console.log('Item to add:', item); // Log each item
-                        await db.collection('inventory').add(item);
+                        console.log('Item to process:', item); // Log each item
+
+                        // Check for existing item by assetTag
+                        const querySnapshot = await db.collection('inventory').where('assetTag', '==', assetTag).get();
+                        if (querySnapshot.empty) {
+                            // Add new item
+                            item.accountedFor = false;
+                            item.location = '';
+                            await db.collection('inventory').add(item);
+                        } else {
+                            // Update existing item (preserve accountedFor and location)
+                            const existingDoc = querySnapshot.docs[0];
+                            await db.collection('inventory').doc(existingDoc.id).update({
+                                description: item.description,
+                                brand: item.brand,
+                                category: item.category
+                            });
+                        }
                     }
                     fetchInventory(); // Refresh table
-                    alert('Inventory imported successfully! Check console for parsed data if issues persist.');
+                    alert('Inventory imported successfully! Duplicates based on Asset Tag were updated without overwriting accountedFor or location. Check console for parsed data if issues persist.');
                 } catch (error) {
                     console.error('Error importing file:', error);
                     alert('Error importing file. Check console for details.');
@@ -341,6 +360,25 @@
             });
 
             doc.save('inventory_report.pdf');
+        }
+
+        // Function to export to Excel
+        function exportToExcel() {
+            const ws_data = [["Asset Tag", "Description", "Brand", "Category", "Accounted For", "Location"]];
+            inventoryData.forEach(item => {
+                ws_data.push([
+                    item.assetTag || '',
+                    item.description || '',
+                    item.brand || '',
+                    item.category || '',
+                    item.accountedFor ? 'Yes' : 'No',
+                    item.location || ''
+                ]);
+            });
+            const ws = XLSX.utils.aoa_to_sheet(ws_data);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "Inventory");
+            XLSX.writeFile(wb, 'inventory_report.xlsx');
         }
     </script>
 </body>
