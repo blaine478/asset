@@ -11,15 +11,79 @@
     <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
     <!-- jsPDF for PDF export -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <!-- jsPDF AutoTable for nicer PDF tables -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf-autotable.min.js"></script>
     <style>
-        body { font-family: Arial, sans-serif; padding: 20px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-        th { background-color: #f2f2f2; }
-        button { margin: 5px; padding: 5px 10px; cursor: pointer; }
-        input, select { padding: 5px; }
-        #searchInput { width: 100%; max-width: 400px; margin-bottom: 10px; }
-        #exportPdf { float: right; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            padding: 20px;
+            background-color: #f4f7fa;
+            color: #333;
+        }
+        h1, h2 {
+            color: #2c3e50;
+        }
+        section {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        th, td {
+            border: 1px solid #e0e0e0;
+            padding: 12px;
+            text-align: left;
+        }
+        th {
+            background-color: #3498db;
+            color: white;
+            font-weight: bold;
+        }
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        tr:hover {
+            background-color: #e8f4fd;
+        }
+        button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #2980b9;
+        }
+        input[type="file"], input[type="text"] {
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            margin-right: 10px;
+        }
+        #searchInput {
+            width: 100%;
+            max-width: 400px;
+            margin-bottom: 10px;
+        }
+        #exportPdf {
+            float: right;
+            background-color: #27ae60;
+        }
+        #exportPdf:hover {
+            background-color: #219d52;
+        }
     </style>
 </head>
 <body>
@@ -87,7 +151,7 @@
                         <input type="checkbox" id="accountedFor-${doc.id}" ${data.accountedFor ? 'checked' : ''} onchange="handleCheckboxChange('${doc.id}', this.checked)" />
                     </td>
                     <td>
-                        <input type="text" id="location-${doc.id}" value="${data.location.replace(/"/g, '&quot;') || ''}" style="display: ${data.accountedFor ? 'block' : 'none'};" onblur="handleLocationBlur('${doc.id}', this.value)" />
+                        <input type="text" id="location-${doc.id}" value="${data.location.replace(/"/g, '"') || ''}" style="display: ${data.accountedFor ? 'block' : 'none'};" onblur="handleLocationBlur('${doc.id}', this.value)" />
                     </td>
                 `;
                 inventoryBody.appendChild(row);
@@ -156,21 +220,29 @@
                     const workbook = XLSX.read(data, { type: 'array' });
                     const sheetName = workbook.SheetNames[0];
                     const worksheet = workbook.Sheets[sheetName];
-                    const json = XLSX.utils.sheet_to_json(worksheet);
+                    const json = XLSX.utils.sheet_to_json(worksheet, { header: 1 }); // Use raw rows to debug
 
-                    for (const row of json) {
+                    // Log the parsed data for debugging
+                    console.log('Parsed Excel Data:', json);
+
+                    // Assuming first row is headers
+                    const headers = json[0];
+                    const rows = json.slice(1);
+
+                    for (const row of rows) {
                         const item = {
-                            assetTag: row['Asset Tag'] || '',
-                            description: row.Description || '',
-                            brand: row.Brand || '',
-                            category: row.Category || '',
+                            assetTag: row[headers.indexOf('Asset Tag')] || '',
+                            description: row[headers.indexOf('Description')] || '',
+                            brand: row[headers.indexOf('Brand')] || '',
+                            category: row[headers.indexOf('Category')] || '',
                             accountedFor: false, // Default to false since not in Excel
                             location: '' // Default to empty
                         };
+                        console.log('Item to add:', item); // Log each item
                         await db.collection('inventory').add(item);
                     }
                     fetchInventory(); // Refresh table
-                    alert('Inventory imported successfully!');
+                    alert('Inventory imported successfully! Check console for parsed data if issues persist.');
                 } catch (error) {
                     console.error('Error importing file:', error);
                     alert('Error importing file. Check console for details.');
@@ -211,23 +283,28 @@
             const { jsPDF } = window.jspdf;
             const doc = new jsPDF();
 
-            doc.setFontSize(16);
-            doc.text('Tool Inventory Report', 10, 10);
+            // Title
+            doc.setFontSize(18);
+            doc.setTextColor(44, 62, 80); // Dark blue
+            doc.text('Tool Inventory Report', 14, 20);
 
-            let y = 20;
-            doc.setFontSize(12);
-            doc.text('Asset Tag | Description | Brand | Category | Accounted For | Location', 10, y);
-            y += 10;
-
-            inventoryData.forEach(item => {
-                const accountedForText = item.accountedFor ? 'Yes' : 'No';
-                const line = `${item.assetTag || ''} | ${item.description || ''} | ${item.brand || ''} | ${item.category || ''} | ${accountedForText} | ${item.location || ''}`;
-                doc.text(line, 10, y);
-                y += 10;
-                if (y > 280) { // Add new page if needed
-                    doc.addPage();
-                    y = 10;
-                }
+            // Add table
+            doc.autoTable({
+                head: [['Asset Tag', 'Description', 'Brand', 'Category', 'Accounted For', 'Location']],
+                body: inventoryData.map(item => [
+                    item.assetTag || '',
+                    item.description || '',
+                    item.brand || '',
+                    item.category || '',
+                    item.accountedFor ? 'Yes' : 'No',
+                    item.location || ''
+                ]),
+                startY: 30,
+                theme: 'grid',
+                styles: { fontSize: 10, cellPadding: 5, overflow: 'linebreak' },
+                headStyles: { fillColor: [52, 152, 219], textColor: [255, 255, 255] }, // Blue header
+                alternateRowStyles: { fillColor: [249, 249, 249] },
+                margin: { top: 30 }
             });
 
             doc.save('inventory_report.pdf');
