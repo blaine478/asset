@@ -1,1 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tool Inventory Manager</title>
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js"></script>
+    <!-- SheetJS for Excel parsing -->
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        button { margin: 5px; }
+    </style>
+</head>
+<body>
+    <h1>Tool Inventory Manager</h1>
+    
+    <section>
+        <h2>Upload Excel Sheet</h2>
+        <input type="file" id="fileUpload" accept=".xlsx, .xls" />
+        <button onclick="handleUpload()">Upload and Import</button>
+    </section>
+    
+    <section>
+        <h2>Inventory List</h2>
+        <table id="inventoryTable">
+            <thead>
+                <tr>
+                    <th>Item Name</th>
+                    <th>Description</th>
+                    <th>Accounted For</th>
+                    <th>Location</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="inventoryBody"></tbody>
+        </table>
+    </section>
 
+    <script>
+        // Replace with your Firebase configuration
+        const firebaseConfig = {
+            apiKey: "your-api-key",
+            authDomain: "your-auth-domain",
+            projectId: "your-project-id",
+            storageBucket: "your-storage-bucket",
+            messagingSenderId: "your-sender-id",
+            appId: "your-app-id",
+            measurementId: "your-measurement-id"
+        };
+
+        // Initialize Firebase
+        const app = firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore(app);
+
+        // Function to fetch and display inventory
+        async function fetchInventory() {
+            const inventoryBody = document.getElementById('inventoryBody');
+            inventoryBody.innerHTML = ''; // Clear table
+            const querySnapshot = await db.collection('inventory').get();
+            querySnapshot.forEach((doc) => {
+                const data = doc.data();
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${data.itemName || ''}</td>
+                    <td>${data.description || ''}</td>
+                    <td id="accountedFor-${doc.id}">${data.accountedFor ? 'Yes' : 'No'}</td>
+                    <td id="location-${doc.id}">${data.location || ''}</td>
+                    <td>
+                        <button onclick="startEdit('${doc.id}', ${data.accountedFor}, '${data.location || ''}')">Edit</button>
+                    </td>
+                `;
+                inventoryBody.appendChild(row);
+            });
+        }
+
+        // Initial fetch
+        fetchInventory();
+
+        // Function to handle Excel upload and import
+        async function handleUpload() {
+            const file = document.getElementById('fileUpload').files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, { type: 'array' });
+                const sheetName = workbook.SheetNames[0];
+                const worksheet = workbook.Sheets[sheetName];
+                const json = XLSX.utils.sheet_to_json(worksheet);
+
+                for (const row of json) {
+                    const item = {
+                        itemName: row.ItemName || '',
+                        description: row.Description || '',
+                        accountedFor: (row.AccountedFor || '').toLowerCase() === 'yes',
+                        location: row.Location || ''
+                    };
+                    await db.collection('inventory').add(item);
+                }
+                fetchInventory(); // Refresh table
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        // Function to start editing
+        function startEdit(id, accountedFor, location) {
+            const accountedForCell = document.getElementById(`accountedFor-${id}`);
+            const locationCell = document.getElementById(`location-${id}`);
+            const actionsCell = accountedForCell.nextSibling.nextSibling; // Assuming structure
+
+            accountedForCell.innerHTML = `
+                <select id="editAccountedFor-${id}">
+                    <option value="yes" ${accountedFor ? 'selected' : ''}>Yes</option>
+                    <option value="no" ${!accountedFor ? 'selected' : ''}>No</option>
+                </select>
+            `;
+            locationCell.innerHTML = `
+                <input id="editLocation-${id}" value="${location}" />
+            `;
+            actionsCell.innerHTML = `
+                <button onclick="saveEdit('${id}')">Save</button>
+            `;
+        }
+
+        // Function to save edits
+        async function saveEdit(id) {
+            const editAccountedFor = document.getElementById(`editAccountedFor-${id}`).value === 'yes';
+            const editLocation = document.getElementById(`editLocation-${id}`).value;
+
+            await db.collection('inventory').doc(id).update({
+                accountedFor: editAccountedFor,
+                location: editLocation
+            });
+            fetchInventory(); // Refresh table
+        }
+    </script>
+</body>
+</html>
